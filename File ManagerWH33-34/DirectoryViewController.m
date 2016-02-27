@@ -35,8 +35,18 @@
     
     NSError *error = nil;
     
-    self.contents = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:self.path
-                                                                        error:&error];
+    self.contents = [[NSFileManager defaultManager] contentsOfDirectoryAtURL:[NSURL fileURLWithPath:self.path]
+                                                  includingPropertiesForKeys:[NSArray arrayWithObject:NSURLNameKey]
+                                                                     options:NSDirectoryEnumerationSkipsHiddenFiles
+                                                                       error:&error];
+    
+    self.contents = [self cutURLString:self.contents];
+    
+    if ([self.contents count] > 0)
+    {
+        self.contents = [self sortContensWithArray:self.contents];
+    }
+    
     if (error)
     {
         NSLog(@"%@", [error localizedDescription]);
@@ -63,23 +73,112 @@
     
     UIBarButtonItem *createFolder = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemAdd
                                                                                target:self
-                                                                               action:@selector(actionCreateFolder:)];
-    self.navigationItem.rightBarButtonItem = createFolder;
+                                                                               action:@selector(actionShowAlertWithFolderName:)];
+    
+    UIBarButtonItem *editButton = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemEdit
+                                                                                target:self
+                                                                                action:@selector(actionEdit:)];
+    self.navigationItem.rightBarButtonItems = @[createFolder, editButton];
 }
 
 #pragma mark - Actions
 
-- (void) actionCreateFolder:(UIBarButtonItem*)sender
+- (void) actionEdit:(UIBarButtonItem*)sender
 {
-    UIAlertController * alert=   [UIAlertController
-                                  alertControllerWithTitle:@"New Folder"
-                                  message:@"Create New Folder"
+    BOOL isEditing = self.tableView.editing;
+    
+    [self.tableView setEditing:!isEditing animated:YES];
+    
+    UIBarButtonSystemItem item = UIBarButtonSystemItemEdit;
+    
+    if (self.tableView.editing)
+    {
+        item = UIBarButtonSystemItemDone;
+    }
+    
+    UIBarButtonItem *createFolder = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemAdd
+                                                                                  target:self
+                                                                                  action:@selector(actionShowAlertWithFolderName:)];
+    
+    UIBarButtonItem *editButton = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:item
+                                                                                target:self
+                                                                                action:@selector(actionEdit:)];
+    self.navigationItem.rightBarButtonItems = @[createFolder, editButton];
+    
+}
+
+- (void) createNewFolderWithName:(NSString*)name
+{
+    NSString *filePath = [self.path stringByAppendingPathComponent:name];
+    
+    BOOL isDirectory = NO;
+    
+    [[NSFileManager defaultManager] fileExistsAtPath:filePath isDirectory:&isDirectory];
+    
+    if (isDirectory)
+    {
+        UIAlertController * alert =   [UIAlertController
+                                       alertControllerWithTitle:@"This folder already exists!"
+                                       message:@""
+                                       preferredStyle:UIAlertControllerStyleAlert];
+        UIAlertAction* ok = [UIAlertAction actionWithTitle:@"Ok" style:UIAlertActionStyleDefault
+                                                       handler:^(UIAlertAction * action) {
+                                                           [alert dismissViewControllerAnimated:YES completion:nil];
+                                                       }];
+        [alert addAction:ok];
+        [self presentViewController:alert animated:YES completion:nil];
+    }
+    else
+    {
+        NSDictionary *attributes = [[NSFileManager defaultManager] attributesOfItemAtPath:self.path error:nil];
+        
+        NSString *path = [self.path stringByAppendingPathComponent:name];
+        
+        [[NSFileManager defaultManager] createDirectoryAtPath:path withIntermediateDirectories:NO attributes:attributes error:nil];
+        
+        NSError *error = nil;
+        
+        self.contents = [[NSFileManager defaultManager] contentsOfDirectoryAtURL:[NSURL fileURLWithPath:self.path]
+                                                      includingPropertiesForKeys:[NSArray arrayWithObject:NSURLNameKey]
+                                                                         options:NSDirectoryEnumerationSkipsHiddenFiles
+                                                                           error:&error];
+        
+        self.contents = [self cutURLString:self.contents];
+        self.contents = [self sortContensWithArray:self.contents];
+        
+        //check object index
+        NSInteger index = 0;
+        
+        for (NSString *string in self.contents)
+        {
+            if ([name isEqualToString:string])
+            {
+                index = [self.contents indexOfObject:string];
+            }
+        }
+        
+        NSIndexPath *indexPath = [NSIndexPath indexPathForRow:index inSection:0];
+        
+        [self.tableView beginUpdates];
+        
+        [self.tableView insertRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationLeft];
+        
+        [self.tableView endUpdates];
+    }
+}
+
+- (void) actionShowAlertWithFolderName:(UIBarButtonItem*)sender
+{
+    UIAlertController * alert =   [UIAlertController
+                                  alertControllerWithTitle:@"Create New Folder"
+                                  message:@""
                                   preferredStyle:UIAlertControllerStyleAlert];
     
-    UIAlertAction* ok = [UIAlertAction actionWithTitle:@"Create" style:UIAlertActionStyleDefault
+    UIAlertAction* ok = [UIAlertAction actionWithTitle:@"Ok" style:UIAlertActionStyleDefault
                                                handler:^(UIAlertAction * action) {
                                                    
                                                    self.createFolder = alert.textFields.firstObject.text;
+                                                   [self createNewFolderWithName:self.createFolder];
                                                }];
     UIAlertAction* cancel = [UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleDefault
                                                    handler:^(UIAlertAction * action) {
@@ -87,8 +186,8 @@
                                                    }];
     
     
-    [alert addAction:ok];
     [alert addAction:cancel];
+    [alert addAction:ok];
     
     [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
         textField.placeholder = @"New folder";
@@ -101,6 +200,50 @@
 }
 
 #pragma mark - Private methods
+
+- (NSArray*) cutURLString:(NSArray*)array
+{
+    NSMutableArray *tempArray = [NSMutableArray array];
+    
+    for (NSString *string in array)
+    {
+        NSString *str = [string lastPathComponent];
+        [tempArray addObject:str];
+    }
+    
+    array = tempArray;
+    
+    return array;
+}
+
+- (NSArray*) sortContensWithArray:(NSArray*)array
+{
+    NSMutableArray* files = [NSMutableArray array];
+    NSMutableArray* folders = [NSMutableArray array];
+    
+    for (int i = 0; i < [array count]; i ++)
+    {
+        NSIndexPath *indexPath = [NSIndexPath indexPathForRow:i inSection:0];
+        
+        if ([self isDirectoryAtIndexPath:indexPath])
+        {
+            [folders addObject:[array objectAtIndex:i]];
+        }
+        else
+        {
+            [files addObject:[array objectAtIndex:i]];
+        }
+    }
+    
+    NSMutableArray *tempArray = [NSMutableArray arrayWithArray:folders];
+    
+    for (NSString *string in files)
+    {
+        [tempArray addObject:string];
+    }
+    
+    return (NSArray*) tempArray;
+}
 
 - (NSString*) fileSizeValue:(unsigned long long)size
 {
@@ -150,6 +293,30 @@
 }
 
 #pragma mark - UITableViewDataSource
+
+- (void)tableView:(UITableView *)tableView commitEditingStyle:(UITableViewCellEditingStyle)editingStyle forRowAtIndexPath:(NSIndexPath *)indexPath
+{
+    if (editingStyle == UITableViewCellEditingStyleDelete)
+    {
+        NSMutableArray *tempArray = [NSMutableArray arrayWithArray:self.contents];
+        [tempArray removeObjectAtIndex:indexPath.row];
+        
+        
+        NSString *folderName = [self.contents objectAtIndex:indexPath.row];
+        NSString *path = [self.path stringByAppendingPathComponent:folderName];
+        
+        [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
+        
+        self.contents = tempArray;
+        
+        [tableView beginUpdates];
+        
+        [tableView deleteRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationRight];
+        
+        [tableView endUpdates];
+        
+    }
+}
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     return [self.contents count];
@@ -220,14 +387,6 @@
 
 
 
-
-
-
-
-
-
-
-//- (BOOL)createDirectoryAtPath:(NSString *)path withIntermediateDirectories:(BOOL)createIntermediates attributes:(nullable NSDictionary<NSString *, id> *)attributes error:(NSError **)error NS_AVAILABLE(10_5, 2_0);
 
 
 
