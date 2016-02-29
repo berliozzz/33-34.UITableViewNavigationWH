@@ -292,6 +292,26 @@
     return date;
 }
 
+- (unsigned long long)sizeOfFolder:(NSString *)folderPath {
+    
+    unsigned long long int result = 0;
+    
+    NSArray *array = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:folderPath error:nil];
+    
+    for (NSString *fileSystemItem in array) {
+        BOOL directory = NO;
+        [[NSFileManager defaultManager] fileExistsAtPath:[folderPath stringByAppendingPathComponent:fileSystemItem] isDirectory:&directory];
+        if (!directory) {
+            result += [[[[NSFileManager defaultManager] attributesOfItemAtPath:[folderPath stringByAppendingPathComponent:fileSystemItem] error:nil] objectForKey:NSFileSize] unsignedIntegerValue];
+        }
+        else {
+            result += [self sizeOfFolder:[folderPath stringByAppendingPathComponent:fileSystemItem]];
+        }
+    }
+    
+    return result;
+}
+
 #pragma mark - UITableViewDataSource
 
 - (void)tableView:(UITableView *)tableView commitEditingStyle:(UITableViewCellEditingStyle)editingStyle forRowAtIndexPath:(NSIndexPath *)indexPath
@@ -329,10 +349,15 @@
     
     NSString *fileName = [self.contents objectAtIndex:indexPath.row];
     
+    NSString *filePath = [self.path stringByAppendingPathComponent:fileName];
+    
     if ([self isDirectoryAtIndexPath:indexPath])
     {
         UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:folderIdentifier];
         cell.textLabel.text = fileName;
+        
+        NSString *folderSizeStr = [NSByteCountFormatter stringFromByteCount:[self sizeOfFolder:filePath] countStyle:NSByteCountFormatterCountStyleFile];
+        cell.detailTextLabel.text = folderSizeStr;
         
         return cell;
     }
